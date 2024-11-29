@@ -65,39 +65,44 @@ html = """ <!DOCTYPE html>
 
 class ConnectionManager:
     def __init__(self):
-        self.action_connections: list[WebSocket] = []
+        self.active_connections: dict[str, WebSocket] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, username: str):
         await websocket.accept()
-        self.action_connections.append(websocket)
+        self.active_connections[username] = websocket
 
-    def disconnect(self, websocket: WebSocket):
-        self.action_connections.remove(websocket)
+    def disconnect(self, username: str):
+        if username in self.active_connections:
+            del self.active_connections[username]
 
     async def send_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
-    async def broadcast(self, message: str):
-        for connection in self.action_connections:
-            await connection.send_text(message)
+    async def broadcast(self, message: str, exclude: WebSocket = None):
+        for connection in self.active_connections.values():
+            if connection != exclude:
+                await connection.send_text(message)
 
 
 manager = ConnectionManager()
 
 
-@app.get("/{client_id}")
+@app.get("/{username}")
 async def get():
     return HTMLResponse(html)
 
 
 @app.websocket("/ws/{username}")
 async def websocket_endpoint(websocket: WebSocket, username: str):
-    await manager.connect(websocket)
+    await manager.connect(websocket, username)
     try:
         while True:
             data = await websocket.receive_text()
             await manager.send_message(f"You wrote: {data}", websocket)
-            await manager.broadcast(f"username #{username} says: {data}")
+
+            await manager.broadcast(
+                f"username #{username} says: {data}", exclude=websocket
+            )
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         await manager.broadcast(f"username #{username} left the chat")
