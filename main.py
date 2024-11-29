@@ -3,42 +3,62 @@ from fastapi.responses import HTMLResponse
 
 
 app = FastAPI()
-html = """
-<!DOCTYPE html>
+html = """ <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>chat</title>
+    <title>Chat</title>
 </head>
 <body>
-    <h1>Websocket chat</h1>
-    <h2>Your ID:<span id="ws-id"></span></h2>
-    <form action="" onsubmit="sendMessage(event)">
-        <input type="text" id="messageText" autocomplete="off">
-        <button>Send</button>
+    <h1>WebSocket Chat</h1>
+    <form id="usernameForm" onsubmit="setUsername(event)">
+        <label for="username">Enter your username:</label>
+        <input type="text" id="username" required>
+        <button>Join Chat</button>
     </form>
-    <ul id="messages"></ul>
+    <div id="chat" style="display:none;">
+        <h2>Welcome, <span id="ws-username"></span>!</h2>
+        <form onsubmit="sendMessage(event)">
+            <input type="text" id="messageText" autocomplete="off" placeholder="Type a message..." required>
+            <button>Send</button>
+        </form>
+        <ul id="messages"></ul>
+    </div>
     <script>
-        var client_id = Date.now();
-        document.querySelector("#ws-id").textContent = client_id; 
-        var ws = new WebSocket(`ws://localhost:8000/ws/${client_id}`); 
-        ws.onmessage = function (event) {
-            var messages = document.getElementById('messages');
-            var message = document.createElement('li');
-            var content = document.createTextNode(event.data)
-            message.appendChild(content)
-            messages.appendChild(message)
+        let username = null;
+        let ws = null;
 
-        };
-        function sendMessage(event){
-            var input = document.getElementById("messageText")
-                ws.send(input.value)
-                input.value = ''
-                event.preventDefault()
+        function setUsername(event) {
+            event.preventDefault();
+            username = document.getElementById("username").value.trim();
+            if (username) {
+                document.getElementById("ws-username").textContent = username;
+                document.getElementById("usernameForm").style.display = "none";
+                document.getElementById("chat").style.display = "block";
+                ws = new WebSocket(`ws://${location.host}/ws/${username}`); // Dynamically set WebSocket URL
+                ws.onmessage = function (event) {
+                    const messages = document.getElementById('messages');
+                    const message = document.createElement('li');
+                    const content = document.createTextNode(event.data);
+                    message.appendChild(content);
+                    messages.appendChild(message);
+                };
+                ws.onclose = function () {
+                    alert("Disconnected from server");
+                };
+            }
+        }
+
+        function sendMessage(event) {
+            event.preventDefault();
+            const input = document.getElementById("messageText");
+            if (input.value.trim()) {
+                ws.send(input.value.trim());
+                input.value = '';
+            }
         }
     </script>
-    
 </body>
 </html>"""
 
@@ -70,14 +90,14 @@ async def get():
     return HTMLResponse(html)
 
 
-@app.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: int):
+@app.websocket("/ws/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str):
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
             await manager.send_message(f"You wrote: {data}", websocket)
-            await manager.broadcast(f"Client #{client_id} says: {data}")
+            await manager.broadcast(f"username #{username} says: {data}")
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        await manager.broadcast(f"C lient #{client_id} left the chat")
+        await manager.broadcast(f"username #{username} left the chat")
